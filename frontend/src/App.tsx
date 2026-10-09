@@ -34,24 +34,33 @@ export const App: React.FC = () => {
   const fetchData = async () => {
     if (!token) return;
     try {
-      const [clientsRes, docsRes, reviewRes] = await Promise.all([
+      const results = await Promise.allSettled([
+        apiClient.get('/statements/'),
         apiClient.get('/clients/'),
         apiClient.get('/documents/'),
         apiClient.get('/review/'),
       ]);
-      setClients(clientsRes.data);
-      setReviewCount(reviewRes.data.length);
 
-      // Fetch all statements directly
-      try {
-        const stmtsRes = await apiClient.get('/statements/');
-        const stmtsList = stmtsRes.data || [];
+      const [stmtsRes, clientsRes, docsRes, reviewRes] = results;
+
+      if (stmtsRes.status === 'fulfilled') {
+        const stmtsList = stmtsRes.value.data || [];
         setStatements(stmtsList);
-        if (stmtsList.length > 0 && !selectedStatementId) {
-          setSelectedStatementId(stmtsList[0].id);
+        if (stmtsList.length > 0) {
+          setSelectedStatementId((prev) =>
+            prev && stmtsList.some((s: any) => s.id === prev) ? prev : stmtsList[0].id
+          );
         }
-      } catch (err) {
-        setStatements([]);
+      } else {
+        console.warn('Failed to load statements:', stmtsRes.reason);
+      }
+
+      if (clientsRes.status === 'fulfilled') {
+        setClients(clientsRes.value.data || []);
+      }
+
+      if (reviewRes.status === 'fulfilled') {
+        setReviewCount(reviewRes.value.data?.length || 0);
       }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
@@ -62,7 +71,7 @@ export const App: React.FC = () => {
     if (token) {
       fetchData();
     }
-  }, [token]);
+  }, [token, currentTab]);
 
   const handleLoginSuccess = (loggedInUser: any, jwtToken: string) => {
     setUser(loggedInUser);
@@ -120,6 +129,7 @@ export const App: React.FC = () => {
               }}
               onOpenUpload={() => setIsUploadOpen(true)}
               onNavigateTab={setCurrentTab}
+              onRefresh={fetchData}
             />
           )}
 

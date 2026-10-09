@@ -18,6 +18,7 @@ import {
   Search,
   ExternalLink,
   ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import { Statement, Client } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -32,6 +33,7 @@ interface DashboardProps {
   onSelectStatement: (stmtId: string) => void;
   onOpenUpload: () => void;
   onNavigateTab: (tab: string) => void;
+  onRefresh?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -43,6 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectStatement,
   onOpenUpload,
   onNavigateTab,
+  onRefresh,
 }) => {
   const [activeStatementId, setActiveStatementId] = useState<string>(
     selectedStatementId || (statements.length > 0 ? statements[0].id : 'ALL')
@@ -50,6 +53,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportingCsvId, setExportingCsvId] = useState<string | null>(null);
   const [dbStatus, setDbStatus] = useState<{ status: string; type: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Auto-sync from DB if statements array is empty on mount
+  useEffect(() => {
+    if (statements.length === 0 && onRefresh) {
+      onRefresh();
+    }
+  }, []);
+
+  const handleSyncDb = async () => {
+    if (onRefresh) {
+      setIsSyncing(true);
+      try {
+        await onRefresh();
+      } finally {
+        setTimeout(() => setIsSyncing(false), 500);
+      }
+    }
+  };
 
   // Sync when selectedStatementId prop changes
   useEffect(() => {
@@ -170,6 +192,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               DB: {dbStatus?.status === 'CONNECTED' ? `CONNECTED (${dbStatus.type})` : 'CONNECTED'}
             </span>
+
+            {onRefresh && (
+              <button
+                onClick={handleSyncDb}
+                disabled={isSyncing}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-medium transition cursor-pointer"
+                title="Sync and refresh statement records directly from database"
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
+                <span>{isSyncing ? 'Syncing DB...' : 'Sync Data from DB'}</span>
+              </button>
+            )}
           </div>
           <p className="text-xs text-slate-400">
             ICAI Compliant Audit Trail • Step-by-Step Balance Continuity • Multi-Bank PDF Extraction Engine
@@ -466,13 +500,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <p className="text-xs text-slate-400">
                         Upload any Bank Statement PDF (HDFC, SBI, ICICI, Axis, Kotak, etc.) to automatically extract transactions, audit balance continuity, and generate complete 13-sheet CA financial analysis with Excel export.
                       </p>
-                      <button
-                        onClick={onOpenUpload}
-                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition inline-flex items-center gap-1.5"
-                      >
-                        <Upload className="w-4 h-4" />
-                        <span>Upload Bank Statement PDF</span>
-                      </button>
+                      <div className="flex items-center justify-center gap-2 pt-2">
+                        <button
+                          onClick={onOpenUpload}
+                          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition inline-flex items-center gap-1.5"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>Upload Bank Statement PDF</span>
+                        </button>
+                        <button
+                          onClick={handleSyncDb}
+                          disabled={isSyncing}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition inline-flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-400' : 'text-slate-400'}`} />
+                          <span>{isSyncing ? 'Syncing...' : 'Sync from DB'}</span>
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>
