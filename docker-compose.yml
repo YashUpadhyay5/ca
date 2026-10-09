@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cafiniq_app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://cafiniq_user:AuditSecurePass2026@postgres:5432/cafiniq_db
+      - SECRET_KEY=cafiniq_production_jwt_signing_secret_key_audit_2026
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+    volumes:
+      - cafiniq_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: cafiniq_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cafiniq_user
+      POSTGRES_PASSWORD: AuditSecurePass2026
+      POSTGRES_DB: cafiniq_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cafiniq_user -d cafiniq_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cafiniq_storage:
+  pgdata:

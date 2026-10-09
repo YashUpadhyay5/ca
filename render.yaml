@@ -1,0 +1,46 @@
+# =============================================================================
+# Render Blueprint Specification for CaFinIQ Bank Statement Intelligence Platform
+# Deploy directly to Render: https://render.com/
+# =============================================================================
+
+services:
+  - type: web
+    name: cafiniq-bank-statement-intelligence
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter # Change to 'free' if deploying on Render Free Tier
+    region: oregon # Options: oregon, frankfurt, singapore, ohio
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: PROJECT_NAME
+        value: CaFinIQ - Bank Statement Intelligence Platform
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 1440
+      - key: MASK_ACCOUNTS_BY_DEFAULT
+        value: true
+      # If connecting to an external Render PostgreSQL service, set DATABASE_URL below:
+      # - key: DATABASE_URL
+      #   fromDatabase:
+      #     name: cafiniq-postgres
+      #     property: connectionString
+
+    # Persistent Storage Disk (Requires Starter plan or above on Render)
+    # If using Render Free Tier, comment out the 'disk' block below:
+    disk:
+      name: cafiniq-data-disk
+      mountPath: /app/storage
+      sizeGB: 10
+
+# Optional: Dedicated Render PostgreSQL Database (uncomment to enable)
+# databases:
+#   - name: cafiniq-postgres
+#     plan: free # or starter
+#     region: oregon
+#     databaseName: cafiniq
+#     user: cafiniq_user

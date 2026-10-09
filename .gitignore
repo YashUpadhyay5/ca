@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.pnpm-store/
+frontend/.npm/
+*.log
+
+# Storage & Local Databases (Do not commit client statements or local DB)
+storage/documents/*
+!storage/documents/.gitkeep
+storage/exports/*
+!storage/exports/.gitkeep
+storage/*.db
+storage/*.sqlite
+*.db
+*.sqlite
+
+# Local Test Outputs
+test_output_analysis.xlsx
+test_output_txns.csv
+test_plain_temp.pdf
+test_encrypted_statement.pdf
+test_encrypted_statement_unlocked.pdf
+temp_test.pdf
+
+# OS & IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
