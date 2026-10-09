@@ -85,6 +85,7 @@ app.include_router(assistant_router, prefix=f"{settings.API_V1_STR}/assistant", 
 app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["Audit Logs"])
 
 @app.get("/health", tags=["System"])
+@app.get(f"{settings.API_V1_STR}/health", tags=["System"])
 def health_check():
     db_status = "CONNECTED"
     db_type = "PostgreSQL" if "postgresql" in settings.DATABASE_URL or "postgres" in settings.DATABASE_URL else "SQLite"
