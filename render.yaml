@@ -8,7 +8,7 @@ services:
     name: cafiniq-bank-statement-intelligence
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter # Change to 'free' if deploying on Render Free Tier
+    plan: free # Zero-cost Render Free Tier
     region: oregon # Options: oregon, frankfurt, singapore, ohio
     healthCheckPath: /health
     autoDeploy: true
@@ -24,18 +24,13 @@ services:
         value: 1440
       - key: MASK_ACCOUNTS_BY_DEFAULT
         value: true
-      # If connecting to an external Render PostgreSQL service, set DATABASE_URL below:
-      # - key: DATABASE_URL
-      #   fromDatabase:
-      #     name: cafiniq-postgres
-      #     property: connectionString
 
-    # Persistent Storage Disk (Requires Starter plan or above on Render)
-    # If using Render Free Tier, comment out the 'disk' block below:
-    disk:
-      name: cafiniq-data-disk
-      mountPath: /app/storage
-      sizeGB: 10
+    # OPTIONAL: Persistent Storage Disk (Requires Starter plan: $7/mo)
+    # Uncomment the disk block below if using a paid plan on Render:
+    # disk:
+    #   name: cafiniq-data-disk
+    #   mountPath: /app/storage
+    #   sizeGB: 10
 
 # Optional: Dedicated Render PostgreSQL Database (uncomment to enable)
 # databases:
