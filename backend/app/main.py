@@ -86,8 +86,19 @@ app.include_router(audit_router, prefix=f"{settings.API_V1_STR}/audit", tags=["A
 
 @app.get("/health", tags=["System"])
 def health_check():
+    db_status = "CONNECTED"
+    db_type = "PostgreSQL" if "postgresql" in settings.DATABASE_URL or "postgres" in settings.DATABASE_URL else "SQLite"
+    try:
+        from sqlalchemy import text
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+    except Exception as e:
+        db_status = f"DISCONNECTED: {str(e)}"
+
     return {
-        "status": "HEALTHY",
+        "status": "HEALTHY" if "CONNECTED" in db_status else "DEGRADED",
+        "database": db_status,
+        "database_type": db_type,
         "platform": settings.PROJECT_NAME,
         "engine": "FastAPI + PyMuPDF + RapidOCR + openpyxl",
         "precision": "Decimal (Accounting-Safe)"

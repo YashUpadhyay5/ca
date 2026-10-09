@@ -112,6 +112,8 @@ export const App: React.FC = () => {
               statements={statements}
               clients={clients}
               reviewCount={reviewCount}
+              selectedStatementId={selectedStatementId}
+              onSelectStatementId={setSelectedStatementId}
               onSelectStatement={(id) => {
                 setSelectedStatementId(id);
                 setCurrentTab('transactions');
