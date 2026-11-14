@@ -18,7 +18,7 @@ class SBIBankParser(BaseBankParser):
 
     def parse_page_table(self, table: List[List[str]], page_number: int) -> List[RawTransaction]:
         transactions: List[RawTransaction] = []
-        if not table or len(table) < 2:
+        if not table or len(table) < 1:
             return transactions
 
         header_idx = -1
@@ -29,12 +29,10 @@ class SBIBankParser(BaseBankParser):
                 header_idx = i
                 break
 
-        if header_idx == -1:
-            header_idx = 0  # Fallback to first row
+        start_row = header_idx + 1 if header_idx != -1 else 0
+        current_txn: Optional[RawTransaction] = self.last_txn if self.last_txn and self.last_txn.source_page == page_number - 1 else None
 
-        current_txn: Optional[RawTransaction] = None
-
-        for row_idx, row in enumerate(table[header_idx + 1:], start=header_idx + 1):
+        for row_idx, row in enumerate(table[start_row:], start=start_row):
             if not row or not any(row):
                 continue
 
@@ -49,6 +47,14 @@ class SBIBankParser(BaseBankParser):
             txn_date = None
             first_cell = cleaned_cells[0] if len(cleaned_cells) > 0 else ""
             parsed_date = DataNormalizer.parse_date(first_cell)
+
+            # Auto-discovery if col 0 was not a date
+            if not parsed_date:
+                for c_i, c_val in enumerate(cleaned_cells[:3]):
+                    d = DataNormalizer.parse_date(c_val)
+                    if d:
+                        parsed_date = d
+                        break
 
             if parsed_date:
                 # New transaction line

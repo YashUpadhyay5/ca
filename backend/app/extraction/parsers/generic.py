@@ -43,7 +43,7 @@ class GenericBankParser(BaseBankParser):
 
     def parse_page_table(self, table: List[List[str]], page_number: int) -> List[RawTransaction]:
         transactions: List[RawTransaction] = []
-        if not table or len(table) < 2:
+        if not table or len(table) < 1:
             return transactions
 
         header_idx = -1
@@ -55,21 +55,32 @@ class GenericBankParser(BaseBankParser):
             if "date" in detected and ("debit" in detected or "credit" in detected or "balance" in detected):
                 header_idx = i
                 col_map = detected
+                self.current_col_map = col_map
                 break
 
-        if header_idx == -1 or "date" not in col_map:
-            col_map = {
-                "date": 0,
-                "narration": 1 if len(table[0]) > 1 else 0,
-                "debit": len(table[0]) - 3 if len(table[0]) >= 4 else -1,
-                "credit": len(table[0]) - 2 if len(table[0]) >= 4 else -1,
-                "balance": len(table[0]) - 1 if len(table[0]) >= 3 else -1
-            }
-            header_idx = 0
+        # Dynamic cross-page persistence: reuse header mapping from earlier pages or infer dynamically
+        if not col_map and self.current_col_map:
+            col_map = self.current_col_map
+            start_row = 0
+        elif header_idx != -1:
+            start_row = header_idx + 1
+        else:
+            # Fallback to statistical column inference if no header is present
+            col_map = self.infer_columns_from_data(table)
+            if not col_map or "date" not in col_map:
+                col_map = {
+                    "date": 0,
+                    "narration": 1 if len(table[0]) > 1 else 0,
+                    "debit": len(table[0]) - 3 if len(table[0]) >= 4 else -1,
+                    "credit": len(table[0]) - 2 if len(table[0]) >= 4 else -1,
+                    "balance": len(table[0]) - 1 if len(table[0]) >= 3 else -1
+                }
+            self.current_col_map = col_map
+            start_row = 0
 
-        current_txn: Optional[RawTransaction] = None
+        current_txn: Optional[RawTransaction] = self.last_txn if self.last_txn and self.last_txn.source_page == page_number - 1 else None
 
-        for row_idx, row in enumerate(table[header_idx + 1:], start=header_idx + 1):
+        for row_idx, row in enumerate(table[start_row:], start=start_row):
             if not row or not any(row):
                 continue
 
@@ -82,18 +93,20 @@ class GenericBankParser(BaseBankParser):
             candidate_date_str = cleaned[date_idx] if date_idx < len(cleaned) else ""
             parsed_date = DataNormalizer.parse_date(candidate_date_str)
 
-            # Fallback: check col 1 if col 0 was not a date
-            if not parsed_date and len(cleaned) > 1:
-                alt_d = DataNormalizer.parse_date(cleaned[1])
-                if alt_d:
-                    parsed_date = alt_d
-                    date_idx = 1
+            # Dynamic date auto-discovery across candidate columns if primary didn't match
+            if not parsed_date:
+                for c_i, c_val in enumerate(cleaned[:5]):
+                    d = DataNormalizer.parse_date(c_val)
+                    if d:
+                        parsed_date = d
+                        date_idx = c_i
+                        break
 
             if parsed_date:
                 narration_idx = col_map.get("narration")
                 narration = cleaned[narration_idx] if narration_idx is not None and narration_idx < len(cleaned) else ""
 
-                ref_idx = col_map.get("ref")
+                ref_idx = col_map.get("ref") or col_map.get("chq")
                 ref_num = cleaned[ref_idx] if ref_idx is not None and ref_idx < len(cleaned) else None
 
                 val_idx = col_map.get("val_date")
@@ -119,7 +132,7 @@ class GenericBankParser(BaseBankParser):
                 current_txn = RawTransaction(
                     transaction_date=parsed_date,
                     value_date=val_date or parsed_date,
-                    narration=narration,
+                    narration=" ".join(narration.replace("\n", " ").split()),
                     raw_text=" | ".join(cleaned),
                     reference_number=ref_num,
                     cheque_number=ref_num if ref_num and ref_num.isdigit() and len(ref_num) == 6 else None,
@@ -131,11 +144,12 @@ class GenericBankParser(BaseBankParser):
                     confidence_score=Decimal("0.95")
                 )
                 transactions.append(current_txn)
+                self.last_txn = current_txn
             else:
                 if current_txn and cleaned:
                     cont_text = " ".join([c for c in cleaned if c])
                     if cont_text and not any(k in cont_text.upper() for k in ["OPENING BALANCE", "CLOSING BALANCE", "SINCERELY", "LEGEND"]):
-                        current_txn.narration += f" {cont_text}"
+                        current_txn.narration += f" {' '.join(cont_text.replace(chr(10), ' ').split())}"
                         current_txn.raw_text += f"\n{cont_text}"
 
         return transactions

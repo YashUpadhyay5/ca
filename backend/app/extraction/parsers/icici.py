@@ -42,7 +42,7 @@ class ICICIBankParser(BaseBankParser):
 
     def parse_page_table(self, table: List[List[str]], page_number: int) -> List[RawTransaction]:
         transactions: List[RawTransaction] = []
-        if not table or len(table) < 2:
+        if not table or len(table) < 1:
             return transactions
 
         header_idx = -1
@@ -53,10 +53,22 @@ class ICICIBankParser(BaseBankParser):
             if "date" in classified and ("debit" in classified or "credit" in classified or "balance" in classified):
                 header_idx = i
                 col_map = classified
+                self.current_col_map = col_map
                 break
 
-        current_txn: Optional[RawTransaction] = None
-        start_row = header_idx + 1 if header_idx != -1 else 0
+        # Dynamic cross-page persistence: reuse header mapping from page 1 or infer dynamically
+        if not col_map and self.current_col_map:
+            col_map = self.current_col_map
+            start_row = 0
+        elif header_idx != -1:
+            start_row = header_idx + 1
+        else:
+            # Fallback to statistical column inference if no header is present
+            col_map = self.infer_columns_from_data(table) or {}
+            self.current_col_map = col_map
+            start_row = 0
+
+        current_txn: Optional[RawTransaction] = self.last_txn if self.last_txn and self.last_txn.source_page == page_number - 1 else None
 
         for row_idx, row in enumerate(table[start_row:], start=start_row):
             if not row or not any(row):
@@ -73,17 +85,15 @@ class ICICIBankParser(BaseBankParser):
 
             if date_idx is not None and date_idx < len(cleaned):
                 txn_date = DataNormalizer.parse_date(cleaned[date_idx])
-            else:
-                # Fallback: check col 0 or col 1
-                d0 = DataNormalizer.parse_date(cleaned[0]) if cleaned else None
-                if d0:
-                    txn_date = d0
-                    date_idx = 0
-                elif len(cleaned) > 1:
-                    d1 = DataNormalizer.parse_date(cleaned[1])
-                    if d1:
-                        txn_date = d1
-                        date_idx = 1
+
+            # Dynamic date auto-discovery across candidate columns if primary column didn't match
+            if not txn_date:
+                for c_i, c_val in enumerate(cleaned[:5]):
+                    d = DataNormalizer.parse_date(c_val)
+                    if d:
+                        txn_date = d
+                        date_idx = c_i
+                        break
 
             if txn_date:
                 # Transaction row start
@@ -94,13 +104,17 @@ class ICICIBankParser(BaseBankParser):
                     if vd:
                         val_date = vd
 
-                # Cheque / Ref
+                # Cheque / Ref / Txn ID
                 chq_idx = col_map.get("chq")
                 chq_num = None
                 if chq_idx is not None and chq_idx < len(cleaned):
                     raw_chq = cleaned[chq_idx].strip()
                     if raw_chq and not any(k in raw_chq.upper() for k in ["UPI", "IMPS", "NEFT"]):
                         chq_num = raw_chq
+                
+                # In ICICI Bank statements, col 1 is 'Transaction ID' (e.g. S6558459)
+                if not chq_num and len(cleaned) > 1 and cleaned[1].startswith('S'):
+                    chq_num = cleaned[1]
 
                 # Narration
                 narr_idx = col_map.get("narration")
@@ -151,7 +165,7 @@ class ICICIBankParser(BaseBankParser):
                 current_txn = RawTransaction(
                     transaction_date=txn_date,
                     value_date=val_date,
-                    narration=narration,
+                    narration=" ".join(narration.replace("\n", " ").split()),
                     raw_text=" | ".join(cleaned),
                     reference_number=chq_num,
                     cheque_number=chq_num if chq_num and chq_num.isdigit() else None,
@@ -163,12 +177,13 @@ class ICICIBankParser(BaseBankParser):
                     confidence_score=Decimal("0.98")
                 )
                 transactions.append(current_txn)
+                self.last_txn = current_txn
             else:
                 # Continuation row for narration
                 if current_txn and cleaned:
                     cont_text = " ".join([c for c in cleaned if c])
                     if cont_text and not any(k in cont_text.upper() for k in ["TOTAL", "OPENING BAL", "CLOSING BAL", "SINCERELY", "LEGEND"]):
-                        current_txn.narration += f" {cont_text}"
+                        current_txn.narration += f" {' '.join(cont_text.replace(chr(10), ' ').split())}"
                         current_txn.raw_text += f"\n{cont_text}"
 
         return transactions

@@ -29,14 +29,21 @@ class DataNormalizer:
         """
         Parses Indian bank date string into datetime.date.
         Prioritizes DD/MM/YYYY over MM/DD/YYYY standard for Indian banks.
+        Robust to multi-line cell wraps, trailing hyphens, and whitespace breaks.
         """
         if not raw_date_str:
             return None
         
-        cleaned = " ".join(raw_date_str.strip().replace("\n", " ").split())
+        # Replace newlines, carriage returns, tabs
+        cleaned = raw_date_str.strip().replace("\n", " ").replace("\r", " ")
+        # Fix multi-line hyphen wraps e.g. "01-Apr- 2025" -> "01-Apr-2025"
+        cleaned = re.sub(r'([A-Za-z]{3})[- /]+\s*(\d{2,4})', r'\1-\2', cleaned)
+        cleaned = re.sub(r'(\d{1,2})[- /]+\s*([A-Za-z]{3})', r'\1-\2', cleaned)
+        cleaned = re.sub(r'(\d{1,2})[- /]+\s*(\d{1,2})[- /]+\s*(\d{2,4})', r'\1-\2-\3', cleaned)
+        cleaned = " ".join(cleaned.split())
         
-        # 1. Match DD-Mon-YYYY (e.g., 01-Jan-2025)
-        match_mon = re.match(r"^(\d{1,2})[- /]([A-Za-z]{3})[- /](\d{2,4})$", cleaned, re.IGNORECASE)
+        # 1. Match DD-Mon-YYYY or DD Mon YYYY or DD-Mon-YY
+        match_mon = re.match(r"^(\d{1,2})\s*[- /]\s*([A-Za-z]{3})\s*[- /]?\s*(\d{2,4})$", cleaned, re.IGNORECASE)
         if match_mon:
             day = int(match_mon.group(1))
             mon_str = match_mon.group(2).lower()
@@ -50,8 +57,8 @@ class DataNormalizer:
                 except ValueError:
                     pass
 
-        # 2. Match DD/MM/YYYY or DD-MM-YYYY
-        match_ddmmyyyy = re.match(r"^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$", cleaned)
+        # 2. Match DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+        match_ddmmyyyy = re.match(r"^(\d{1,2})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{2,4})$", cleaned)
         if match_ddmmyyyy:
             p1 = int(match_ddmmyyyy.group(1))
             p2 = int(match_ddmmyyyy.group(2))
@@ -70,7 +77,7 @@ class DataNormalizer:
                     pass
 
         # 3. Match YYYY-MM-DD
-        match_iso = re.match(r"^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$", cleaned)
+        match_iso = re.match(r"^(\d{4})\s*[/.-]\s*(\d{1,2})\s*[/.-]\s*(\d{1,2})$", cleaned)
         if match_iso:
             try:
                 return date(int(match_iso.group(1)), int(match_iso.group(2)), int(match_iso.group(3)))

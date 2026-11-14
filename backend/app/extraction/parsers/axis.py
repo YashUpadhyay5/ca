@@ -18,7 +18,7 @@ class AxisBankParser(BaseBankParser):
 
     def parse_page_table(self, table: List[List[str]], page_number: int) -> List[RawTransaction]:
         transactions: List[RawTransaction] = []
-        if not table or len(table) < 2:
+        if not table or len(table) < 1:
             return transactions
 
         header_idx = -1
@@ -28,12 +28,10 @@ class AxisBankParser(BaseBankParser):
                 header_idx = i
                 break
 
-        if header_idx == -1:
-            header_idx = 0
+        start_row = header_idx + 1 if header_idx != -1 else 0
+        current_txn: Optional[RawTransaction] = self.last_txn if self.last_txn and self.last_txn.source_page == page_number - 1 else None
 
-        current_txn: Optional[RawTransaction] = None
-
-        for row_idx, row in enumerate(table[header_idx + 1:], start=header_idx + 1):
+        for row_idx, row in enumerate(table[start_row:], start=start_row):
             if not row or not any(row):
                 continue
 
@@ -43,6 +41,15 @@ class AxisBankParser(BaseBankParser):
                 continue
 
             parsed_date = DataNormalizer.parse_date(cleaned[0]) if cleaned else None
+            date_col_idx = 0
+
+            if not parsed_date:
+                for c_i, c_val in enumerate(cleaned[:3]):
+                    d = DataNormalizer.parse_date(c_val)
+                    if d:
+                        parsed_date = d
+                        date_col_idx = c_i
+                        break
 
             if parsed_date:
                 txn_date = parsed_date
@@ -69,7 +76,7 @@ class AxisBankParser(BaseBankParser):
                 current_txn = RawTransaction(
                     transaction_date=txn_date,
                     value_date=txn_date,
-                    narration=narration,
+                    narration=" ".join(narration.replace("\n", " ").split()),
                     raw_text=" | ".join(cleaned),
                     reference_number=chq_num,
                     cheque_number=chq_num if chq_num and chq_num.isdigit() else None,
@@ -81,6 +88,7 @@ class AxisBankParser(BaseBankParser):
                     confidence_score=Decimal("0.98")
                 )
                 transactions.append(current_txn)
+                self.last_txn = current_txn
             else:
                 if current_txn and cleaned:
                     cont_text = " ".join([c for c in cleaned if c])
@@ -104,7 +112,7 @@ class KotakBankParser(BaseBankParser):
 
     def parse_page_table(self, table: List[List[str]], page_number: int) -> List[RawTransaction]:
         transactions: List[RawTransaction] = []
-        if not table or len(table) < 2:
+        if not table or len(table) < 1:
             return transactions
 
         header_idx = -1
@@ -114,12 +122,10 @@ class KotakBankParser(BaseBankParser):
                 header_idx = i
                 break
 
-        if header_idx == -1:
-            header_idx = 0
+        start_row = header_idx + 1 if header_idx != -1 else 0
+        current_txn: Optional[RawTransaction] = self.last_txn if self.last_txn and self.last_txn.source_page == page_number - 1 else None
 
-        current_txn: Optional[RawTransaction] = None
-
-        for row_idx, row in enumerate(table[header_idx + 1:], start=header_idx + 1):
+        for row_idx, row in enumerate(table[start_row:], start=start_row):
             if not row or not any(row):
                 continue
 
@@ -138,6 +144,14 @@ class KotakBankParser(BaseBankParser):
             else:
                 parsed_date = DataNormalizer.parse_date(cleaned[0])
                 date_cell_idx = 0
+
+            if not parsed_date:
+                for c_i, c_val in enumerate(cleaned[:4]):
+                    d = DataNormalizer.parse_date(c_val)
+                    if d:
+                        parsed_date = d
+                        date_cell_idx = c_i
+                        break
 
             if parsed_date:
                 txn_date = parsed_date

@@ -104,6 +104,7 @@ class ExtractionPipeline:
         # 1. Inspect first page for bank detection and metadata
         first_page_text = doc[0].get_text() if total_pages > 0 else ""
         selected_parser = cls.detect_bank_parser(first_page_text)
+        selected_parser.reset()
         detected_acc_no = cls.extract_account_number(first_page_text)
         detected_customer_name = cls.extract_customer_name(first_page_text)
 
@@ -139,7 +140,7 @@ class ExtractionPipeline:
 
             # Parse each extracted table using the selected parser adapter
             for tbl in tables:
-                if tbl and len(tbl) > 1:
+                if tbl and len(tbl) >= 1:
                     page_txns = selected_parser.parse_page_table(tbl, page_num)
                     for pt in page_txns:
                         # Adjust confidence for scanned pages

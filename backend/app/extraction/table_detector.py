@@ -235,11 +235,16 @@ class TableDetector:
                 if 1 <= page_number <= len(pdf.pages):
                     page = pdf.pages[page_number - 1]
 
+                    # 1. Try explicit line-bounded extraction
                     extracted = page.extract_tables({
                         "vertical_strategy": "lines",
                         "horizontal_strategy": "lines",
                         "snap_tolerance": 3,
                     })
+
+                    # 2. If no tables found with lines, try default text-based table extraction
+                    if not extracted:
+                        extracted = page.extract_tables()
 
                     if extracted:
                         for tbl in extracted:
@@ -248,12 +253,12 @@ class TableDetector:
                                 cleaned_row = [str(cell or "").strip() for cell in row]
                                 if any(cleaned_row):
                                     cleaned_tbl.append(cleaned_row)
-                            if len(cleaned_tbl) >= 3:
+                            if len(cleaned_tbl) >= 1:
                                 tables.append(cleaned_tbl)
 
             if not tables:
                 stream_tbl = cls.extract_stream_table_anchors(pdf_path, page_number)
-                if stream_tbl and len(stream_tbl) >= 2:
+                if stream_tbl and len(stream_tbl) >= 1:
                     tables.append(stream_tbl)
 
         except Exception:
