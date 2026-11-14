@@ -22,6 +22,7 @@ class StatementResponse(BaseModel):
     net_movement: Decimal
     parser_used: str
     confidence_avg: Decimal
+    excel_path: Optional[str] = None
     created_at: datetime
 
     class Config:

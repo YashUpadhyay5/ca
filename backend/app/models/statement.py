@@ -25,6 +25,7 @@ class Statement(Base):
     net_movement = Column(Numeric(15, 2), default=0.00, nullable=False)
     parser_used = Column(String(50), default="GENERIC", nullable=False)
     confidence_avg = Column(Numeric(5, 2), default=1.00, nullable=False)
+    excel_path = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     document = relationship("Document", back_populates="statement")

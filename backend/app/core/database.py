@@ -31,7 +31,14 @@ def get_db():
         db.close()
 
 def init_db():
-    """Initialize database tables."""
+    """Initialize database tables and run lightweight schema migrations."""
     # Import all models before calling create_all
     import app.models  # noqa
     Base.metadata.create_all(bind=engine)
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE statements ADD COLUMN excel_path VARCHAR(500)"))
+            conn.commit()
+    except Exception:
+        pass

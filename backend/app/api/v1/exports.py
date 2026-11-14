@@ -23,13 +23,29 @@ def export_statement_excel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generates and serves professional 7-sheet openpyxl Excel workbook."""
+    """Generates and serves professional 13-sheet openpyxl Excel workbook."""
+    from pathlib import Path
+
     statement = db.query(Statement).join(Document).filter(
         Statement.id == opts.statement_id,
         Document.org_id == current_user.org_id
     ).first()
     if not statement:
         raise HTTPException(status_code=404, detail="Statement not found.")
+
+    has_filters = bool(
+        opts.date_from or opts.date_to or 
+        (opts.transaction_type and opts.transaction_type != "ALL") or 
+        opts.payment_mode or opts.category
+    )
+
+    # If no filters applied and pre-generated workbook exists, return it immediately
+    if not has_filters and statement.excel_path and Path(statement.excel_path).exists():
+        return FileResponse(
+            path=str(statement.excel_path),
+            filename=Path(statement.excel_path).name,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
     query = db.query(Transaction).filter(Transaction.statement_id == statement.id)
 
@@ -82,6 +98,16 @@ def export_statement_excel(
         filename=file_path.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+@router.get("/excel/{statement_id}")
+def download_statement_excel(
+    statement_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Direct one-click download for 13-sheet CA analysis Excel workbook by statement ID."""
+    opts = ExportFilterOptions(statement_id=statement_id)
+    return export_statement_excel(opts=opts, db=db, current_user=current_user)
 
 @router.post("/csv")
 def export_statement_csv(

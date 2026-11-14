@@ -32,11 +32,15 @@ class GenericBankParser(BaseBankParser):
                 col_map["narration"] = idx
             elif any(k in c for k in ["CHQ", "CHEQUE", "REF NO", "REF.", "UTR", "RRN", "TRANSACTION ID", "CHEQUE NUMBER"]):
                 col_map["ref"] = idx
-            elif any(k in c for k in ["WITHDRAWAL", "DEBIT", "DR AMT", "DR."]):
+            elif any(k in c for k in ["WITHDRAWAL", "DEBIT", "DR AMT", "DR.", "DR", "WITHDRAWAL(DR)"]):
                 col_map["debit"] = idx
-            elif any(k in c for k in ["DEPOSIT", "CREDIT", "CR AMT", "CR."]):
+            elif any(k in c for k in ["DEPOSIT", "CREDIT", "CR AMT", "CR.", "CR", "DEPOSIT(CR)"]):
                 col_map["credit"] = idx
-            elif any(k in c for k in ["BALANCE", "CLOSING BAL", "BAL"]):
+            elif any(k in c for k in ["CR/DR", "CR / DR", "DR/CR", "DR / CR", "TYPE"]):
+                col_map["type"] = idx
+            elif any(k in c for k in ["TXN AMT", "AMOUNT", "AMT"]) and "debit" not in col_map and "credit" not in col_map:
+                col_map["amount"] = idx
+            elif any(k in c for k in ["BALANCE", "CLOSING BAL", "BAL", "RUNNING BAL"]):
                 col_map["balance"] = idx
 
         return col_map
@@ -123,6 +127,13 @@ class GenericBankParser(BaseBankParser):
                 credit_val = Decimal("0.00")
                 if cred_idx is not None and 0 <= cred_idx < len(cleaned):
                     credit_val = DataNormalizer.parse_currency(cleaned[cred_idx])
+
+                # Support single amount column with CR/DR type indicator
+                amt_idx = col_map.get("amount")
+                if (debit_val == 0 and credit_val == 0) and amt_idx is not None and 0 <= amt_idx < len(cleaned):
+                    type_idx = col_map.get("type")
+                    type_str = cleaned[type_idx] if type_idx is not None and 0 <= type_idx < len(cleaned) else ""
+                    debit_val, credit_val = DataNormalizer.parse_amount_with_indicator(cleaned[amt_idx], type_str)
 
                 bal_idx = col_map.get("balance")
                 bal_val = Decimal("0.00")

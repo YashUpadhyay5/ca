@@ -8,13 +8,13 @@ class TableDetector:
     """Detects and extracts 2D structured table grids from digital and OCR pages."""
 
     COLUMN_KEYWORDS = {
-        "date": ["TRANSACTION DATE", "TXN DATE", "VALUE DATE", "POSTING DATE", "TRAN DATE", "DATE"],
-        "narration": ["TRANSACTION REMARKS", "PARTICULARS", "DESCRIPTION", "NARRATION", "REMARKS", "DETAILS"],
-        "chq": ["CHEQUE NUMBER", "CHQ NO", "REF NO", "CHEQUE", "CHQ", "REF.", "UTR"],
-        "debit": ["WITHDRAWAL AMOUNT", "WITHDRAWAL", "DEBIT", "DR AMT", "DR.", "DR"],
-        "credit": ["DEPOSIT AMOUNT", "DEPOSIT", "CREDIT", "CR AMT", "CR.", "CR"],
-        "balance": ["BALANCE (INR)", "CLOSING BALANCE", "BALANCE", "BAL"],
-        "s_no": ["S NO", "SL NO", "SR NO", "NO."]
+        "date": ["TRANSACTION DATE", "TXN DATE", "VALUE DATE", "POSTING DATE", "TRAN DATE", "TRANS DATE", "VALUE DT", "VAL DT", "POST DT", "DATE"],
+        "narration": ["TRANSACTION REMARKS", "PARTICULARS", "DESCRIPTION", "NARRATION", "REMARKS", "DETAILS", "TXN PARTICULARS", "TRANSACTION DETAILS"],
+        "chq": ["CHEQUE NUMBER", "CHQ NO", "REF NO", "CHEQUE", "CHQ", "REF.", "UTR", "TRANSACTION ID", "TXN ID", "CHQ / REF NO", "CHQ.NO.", "CHEQUE/REF.NO."],
+        "debit": ["WITHDRAWAL AMOUNT", "WITHDRAWAL", "WITHDRAWALS", "DEBIT AMOUNT", "DEBIT", "DEBITS", "DR AMT", "DR.", "DR", "WITHDRAWAL(DR)"],
+        "credit": ["DEPOSIT AMOUNT", "DEPOSIT", "DEPOSITS", "CREDIT AMOUNT", "CREDIT", "CREDITS", "CR AMT", "CR.", "CR", "DEPOSIT(CR)"],
+        "balance": ["BALANCE (INR)", "CLOSING BALANCE", "RUNNING BALANCE", "BALANCE (RS)", "BALANCE(INR)", "NET BALANCE", "AVAILABLE BALANCE", "BALANCE", "BAL"],
+        "s_no": ["S NO", "SL NO", "SR NO", "S.NO", "SL.NO", "NO."]
     }
 
     _cached_bounds: Optional[List[Tuple[str, float, float]]] = None
@@ -174,7 +174,7 @@ class TableDetector:
 
                 table_words = [w for w in words if page_h_bottom <= w['top'] < footer_top]
 
-                date_bound = next((b for b in col_bounds if "DATE" in b[0].upper()), None)
+                date_bound = next((b for b in col_bounds if any(k in b[0].upper() for k in ["TXN DATE", "TRAN DATE", "TRANS DATE", "VALUE DATE", "DATE"])), None)
                 if not date_bound:
                     return rows
 
@@ -182,9 +182,9 @@ class TableDetector:
 
                 date_anchors = [
                     w for w in table_words
-                    if d_left <= w['x0'] <= d_right and re.match(
-                        r"^(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}[- ][A-Za-z]{3}[- ]\d{2,4})$",
-                        w['text']
+                    if d_left - 8.0 <= w['x0'] <= d_right + 8.0 and (
+                        DataNormalizer.parse_date(w['text']) is not None
+                        or re.match(r"^(\d{1,2}[./-]\d{1,2}([./-]\d{2,4})?|\d{1,2}[- ][A-Za-z]{3}([- ]\d{2,4})?[- /]?)$", w['text'])
                     )
                 ]
                 date_anchors.sort(key=lambda w: w['top'])

@@ -194,6 +194,49 @@ class JobManager:
             db.add(audit)
             db.commit()
 
+            # Auto-generate production 13-sheet CA analysis Excel workbook immediately
+            generated_excel_name = None
+            try:
+                cls.update_job(job_id, current_step="Generating 13-sheet CA analysis Excel workbook", progress_percentage=96)
+                from app.calculations.engine import CalculationEngine
+                from app.exports.excel_generator import ExcelExportService
+                from app.validation.balance_validator import BalanceValidator
+                from pathlib import Path
+
+                ordered_txns = db.query(Transaction).filter(Transaction.statement_id == statement.id).order_by(Transaction.transaction_date).all()
+
+                overview_metrics = CalculationEngine.compute_summary_metrics(ordered_txns)
+                overview_metrics["opening_balance"] = statement.opening_balance
+                overview_metrics["closing_balance"] = statement.closing_balance
+                overview_metrics["calculated_closing_balance"] = statement.calculated_closing_balance
+                overview_metrics["balance_discrepancy"] = statement.balance_discrepancy
+
+                monthly_data = CalculationEngine.compute_monthly_analysis(ordered_txns)
+                payment_modes = CalculationEngine.compute_payment_modes(ordered_txns)
+                categories = CalculationEngine.compute_categories(ordered_txns)
+                is_valid, cum_diff, broken_steps = BalanceValidator.validate_continuity(ordered_txns, statement.opening_balance)
+                recon_report = {"broken_steps": broken_steps}
+
+                client_name = doc_record.client.name if doc_record.client else (result.get("customer_name") or "Client Account")
+
+                excel_path = ExcelExportService.generate_statement_workbook(
+                    statement=statement,
+                    transactions=ordered_txns,
+                    overview_metrics=overview_metrics,
+                    monthly_data=monthly_data,
+                    payment_modes=payment_modes,
+                    categories=categories,
+                    reconciliation_report=recon_report,
+                    review_items=db_reviews,
+                    client_name=client_name
+                )
+                statement.excel_path = str(excel_path)
+                db.commit()
+                generated_excel_name = Path(excel_path).name
+            except Exception as excel_err:
+                print(f"Warning: Pre-generating Excel workbook: {excel_err}")
+                traceback.print_exc()
+
             high_conf_count = sum(1 for t in result["transactions"] if t["confidence_score"] >= 0.90)
             high_conf_pct = (high_conf_count / len(result["transactions"]) * 100) if result["transactions"] else 100.0
 
@@ -201,13 +244,14 @@ class JobManager:
                 job_id,
                 status="COMPLETED",
                 progress_percentage=100,
-                current_step="Extraction, normalization, and validation complete.",
+                current_step="Extraction, normalization, validation & 13-sheet Excel generation complete.",
                 pages_processed=result["total_pages"],
                 total_pages=result["total_pages"],
                 transactions_extracted=len(db_txns),
                 high_confidence_pct=round(high_conf_pct, 1),
                 review_required_count=len(db_reviews),
-                statement_id=statement.id
+                statement_id=statement.id,
+                excel_file=generated_excel_name
             )
 
         except Exception as e:

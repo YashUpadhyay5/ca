@@ -45,4 +45,5 @@ class ProcessingJobStatus(BaseModel):
     error_message: Optional[str] = None
     error_code: Optional[str] = None
     statement_id: Optional[str] = None
+    excel_file: Optional[str] = None
 

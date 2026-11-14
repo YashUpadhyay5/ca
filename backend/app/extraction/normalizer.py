@@ -144,3 +144,20 @@ class DataNormalizer:
         credit = cls.parse_currency(deposit_col)
         balance = cls.parse_currency(balance_col)
         return debit, credit, balance
+
+    @classmethod
+    def parse_amount_with_indicator(cls, amount_str: str, type_str: str = "") -> Tuple[Decimal, Decimal]:
+        """
+        Parses amount that may include or be paired with a CR/DR indicator.
+        Handles single amount column statements (e.g. '1,500.00 Cr' or '500.00 Dr').
+        Returns (debit_amount, credit_amount).
+        """
+        raw = f"{amount_str} {type_str}".upper()
+        amt = cls.parse_currency(amount_str)
+        if amt < 0:
+            return abs(amt), Decimal("0.00")
+        if "CR" in raw:
+            return Decimal("0.00"), amt
+        elif "DR" in raw:
+            return amt, Decimal("0.00")
+        return Decimal("0.00"), Decimal("0.00")
