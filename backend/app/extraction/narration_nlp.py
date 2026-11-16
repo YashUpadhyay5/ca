@@ -1,12 +1,14 @@
 import re
 from typing import Dict, Any, Optional
+from app.extraction.ml_classifier import MLTransactionClassifier
 
 class NarrationNLP:
-    """Intelligent parser for Indian bank narrations, payment modes, VPAs, and tax classifications."""
+    """Intelligent parser for Indian bank narrations, payment modes, VPAs, UTRs, and tax classifications."""
 
     UPI_PATTERN = re.compile(r"([a-zA-Z0-9.\-_]{2,50}@[a-zA-Z0-9]{2,30})", re.IGNORECASE)
     CHEQUE_PATTERN = re.compile(r"\b(?:CHQ|CHEQUE|CHQNO)[/:\s.-]*(\d{6})\b", re.IGNORECASE)
     REF_PATTERN = re.compile(r"\b(?:REF|UTR|RRN|TXN|ID)[/:\s.-]*([A-Z0-9]{8,22})\b", re.IGNORECASE)
+    UTR_EXPLICIT_PATTERN = re.compile(r"\b(?:UTR[/:\s.-]*|INF[/:\s.-]*|CMS[/:\s.-]*)([A-Z0-9]{12,22})\b", re.IGNORECASE)
 
     # Common Indian Merchants
     MERCHANTS = [
@@ -17,7 +19,7 @@ class NarrationNLP:
         "CRED", "PAYTM", "PHONEPE", "GOOGLE PAY", "POLICYBAZAAR", "NYKAA"
     ]
 
-    # Category matching rules
+    # Category matching rules (Deterministic Rules - First Priority)
     CATEGORY_RULES = [
         # Tax & Govt Payments
         (r"(?i)\b(?:GST|GSTIN|CBIC|GOODS AND SERVICES TAX)\b", "Tax", "GST"),
@@ -31,9 +33,9 @@ class NarrationNLP:
         # Financial / Debt
         (r"(?i)\b(?:EMI|LOAN|HOME LOAN|AUTO LOAN|BAJAJ FIN|HDFC LTD|ICICI HFC)\b", "EMI", "Loan Repayment"),
         (r"(?i)\b(?:INSURANCE|LIC|HDFC LIFE|ICICI PRU|MAX LIFE|STAR HEALTH|MEDICLAIM)\b", "Insurance", "Premium"),
-        (r"(?i)\b(?:MUTUAL FUND|SIP|ZERODHA|GROWW|NSE|BSE|KFINTECH|CAMS|SECURITIES)\b", "Investment", "Equities & MF"),
+        (r"(?i)\b(?:MUTUAL FUND|SIP|ZERODHA|GROWW|NSE|BSE|KFINTECH|CAMS|SECURITIES)\b", "Investments", "Equities & MF"),
         (r"(?i)\b(?:INTEREST|INT\.PAID|INT\.COLL|INT CREDIT)\b", "Interest", "Bank Interest"),
-        (r"(?i)\b(?:CHG|CHARGES|ANNUAL FEE|SMS CHG|DEBIT CARD AMC|MIN BAL|SERVICE CHG)\b", "Bank Charges", "Bank Fees"),
+        (r"(?i)\b(?:CHG|CHARGES|ANNUAL FEE|SMS CHG|DEBIT CARD AMC|MIN BAL|SERVICE CHG|BATCHFEE)\b", "Bank Charges", "Bank Fees"),
         
         # Operations & Living
         (r"(?i)\b(?:RENT|LEASE|MAINTENANCE|SOCIETY)\b", "Rent", "Property Rent"),
@@ -42,12 +44,15 @@ class NarrationNLP:
         (r"(?i)\b(?:UBER|OLA|IRCTC|INDIAN RAILWAY|INDIGO|AIR INDIA|VISTARA|MAKEMYTRIP|RED BUS)\b", "Travel", "Commute & Travel"),
         (r"(?i)\b(?:SWIGGY|ZOMATO|RESTAURANT|CAFE|MCDONALDS|DOMINOS|STARBUCKS)\b", "Food", "Dining & Ordering"),
         (r"(?i)\b(?:AMAZON|FLIPKART|MYNTRA|AJIO|BLINKIT|ZEPTO|BIGBASKET|DMART|SHOPPING)\b", "Shopping", "E-Commerce"),
-        (r"(?i)\b(?:CASH WDL|ATM WDL|ATM CASH|CASH DEP|SELF CHEQUE|BY CASH)\b", "Cash", "Cash Transaction"),
+        (r"(?i)\b(?:CASH WDL|ATM WDL|ATM CASH|CASH DEP|SELF CHEQUE|BY CASH|CWDR|NFS)\b", "Cash Withdrawal", "Cash Transaction"),
+        (r"(?i)\b(?:AUDIT|LEGAL|CONSULTANCY|ADVISORY|PROFESSIONAL FEES)\b", "Professional Fees", "Consultancy"),
+        (r"(?i)\b(?:DIRECTOR|REMUNERATION|SITTING FEES|DRAWINGS)\b", "Director Remuneration", "Remuneration"),
+        (r"(?i)\b(?:VENDOR|SUPPLIER|INVOICE|PROCUREMENT|MATERIALS)\b", "Vendor Payment", "Suppliers"),
     ]
 
     @classmethod
     def parse(cls, narration: str) -> Dict[str, Any]:
-        """Deep analysis of narration line into metadata and classification."""
+        """Deep analysis of narration line into metadata, normalized text, and classification."""
         clean_text = " ".join(narration.replace("\n", " ").split()).strip()
         result = {
             "payment_mode": "TRANSFER",
@@ -57,7 +62,10 @@ class NarrationNLP:
             "merchant": None,
             "upi_id": None,
             "cheque_number": None,
-            "reference_number": None
+            "reference_number": None,
+            "utr_number": None,
+            "normalised_narration": clean_text,
+            "confidence_score": 0.85
         }
 
         if not clean_text:
@@ -74,9 +82,9 @@ class NarrationNLP:
             result["payment_mode"] = "RTGS"
         elif upper.startswith("IMPS") or "/IMPS/" in upper or " IMPS " in upper:
             result["payment_mode"] = "IMPS"
-        elif "ATM" in upper or "NWD" in upper or "EAW" in upper:
+        elif "ATM" in upper or "NWD" in upper or "EAW" in upper or "NFS" in upper:
             result["payment_mode"] = "ATM"
-        elif "POS" in upper or "EDC" in upper:
+        elif "POS" in upper or "EDC" in upper or "MESPOS" in upper:
             result["payment_mode"] = "POS"
         elif "CHQ" in upper or "CHEQUE" in upper or "CTS" in upper:
             result["payment_mode"] = "CHEQUE"
@@ -90,7 +98,7 @@ class NarrationNLP:
             result["payment_mode"] = "CARD"
         elif "INT.PD" in upper or "INTEREST" in upper:
             result["payment_mode"] = "INTEREST"
-        elif "CHG" in upper or "FEE" in upper:
+        elif "CHG" in upper or "FEE" in upper or "BATCHFEE" in upper:
             result["payment_mode"] = "BANK_CHARGES"
 
         # 2. Extract UPI ID
@@ -103,10 +111,16 @@ class NarrationNLP:
         if chq_match:
             result["cheque_number"] = chq_match.group(1)
 
-        # 4. Extract Reference Number
+        # 4. Extract Reference Number & UTR Number
         ref_match = cls.REF_PATTERN.search(clean_text)
         if ref_match:
             result["reference_number"] = ref_match.group(1)
+
+        utr_match = cls.UTR_EXPLICIT_PATTERN.search(clean_text)
+        if utr_match:
+            result["utr_number"] = utr_match.group(1)
+        elif result["reference_number"] and len(result["reference_number"]) >= 12:
+            result["utr_number"] = result["reference_number"]
 
         # 5. Extract Merchant
         for m in cls.MERCHANTS:
@@ -116,23 +130,36 @@ class NarrationNLP:
                 break
 
         # 6. Extract Counterparty from typical Indian UPI / IMPS strings
-        # Example format: UPI/DR/123456/PAYEE_NAME/Bank... or NEFT/AXN1234/PAYEE_NAME
         if not result["counterparty"]:
             tokens = [t.strip() for t in re.split(r"[/:\-_|]", clean_text) if len(t.strip()) > 2]
             for token in tokens:
                 token_clean = token.strip()
-                # If looks like a name (alphabetic, not a transaction keyword, length > 3)
                 if token_clean.isalpha() and len(token_clean) > 3 and token_clean.upper() not in [
-                    "UPI", "NEFT", "RTGS", "IMPS", "TRANSFER", "BANK", "PAYMENT", "DR", "CR", "XX", "XXX"
+                    "UPI", "NEFT", "RTGS", "IMPS", "TRANSFER", "BANK", "PAYMENT", "DR", "CR", "XX", "XXX", "MESPOS"
                 ]:
                     result["counterparty"] = token_clean.title()
                     break
 
-        # 7. Categorization & Tax Analysis
+        # Canonicalize counterparty with RapidFuzz
+        if result["counterparty"]:
+            result["counterparty"] = MLTransactionClassifier.canonicalize_counterparty(result["counterparty"])
+
+        # 7. Categorization & Tax Analysis: Deterministic Rules First
+        matched = False
         for pattern, cat, subcat in cls.CATEGORY_RULES:
             if re.search(pattern, clean_text):
                 result["category"] = cat
                 result["subcategory"] = subcat
+                result["confidence_score"] = 0.98
+                matched = True
                 break
+
+        # Fallback to scikit-learn ML Classifier for Ambiguous Narrations
+        if not matched:
+            ml_cat, ml_subcat, ml_conf, _ = MLTransactionClassifier.classify_narration(clean_text)
+            if ml_cat != "Miscellaneous":
+                result["category"] = ml_cat
+                result["subcategory"] = ml_subcat
+                result["confidence_score"] = ml_conf
 
         return result

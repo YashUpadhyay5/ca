@@ -130,7 +130,26 @@ class JobManager:
                     db.add(new_acc)
 
 
-            # Batch insert transactions
+            # Save pages
+            from app.models.statement_page import BankStatementPage
+            from app.models.duplicate import DuplicateCandidate
+            from app.models.classification import TransactionClassification
+
+            pages_list = []
+            for p_dict in result.get("pages", []):
+                p_record = BankStatementPage(
+                    statement_id=statement.id,
+                    page_number=p_dict["page_number"],
+                    page_status=p_dict["page_status"],
+                    char_count=p_dict["char_count"],
+                    table_detected=p_dict["table_detected"],
+                    extraction_time_ms=p_dict["extraction_time_ms"]
+                )
+                pages_list.append(p_record)
+            if pages_list:
+                db.bulk_save_objects(pages_list)
+
+            # Batch insert transactions with enterprise fields
             db_txns = []
             for t_dict in result["transactions"]:
                 txn = Transaction(
@@ -139,7 +158,9 @@ class JobManager:
                     value_date=t_dict["value_date"],
                     narration=t_dict["narration"],
                     raw_text=t_dict["raw_text"],
+                    normalised_narration=t_dict.get("normalised_narration", t_dict["narration"]),
                     reference_number=t_dict["reference_number"],
+                    utr_number=t_dict.get("utr_number"),
                     cheque_number=t_dict["cheque_number"],
                     debit_amount=t_dict["debit_amount"],
                     credit_amount=t_dict["credit_amount"],
@@ -152,6 +173,8 @@ class JobManager:
                     source_page=t_dict["source_page"],
                     source_row=t_dict["source_row"],
                     confidence_score=t_dict["confidence_score"],
+                    extraction_method=t_dict.get("extraction_method", "NATIVE_PDF"),
+                    currency=t_dict.get("currency", "INR"),
                     validation_status=t_dict["validation_status"],
                     is_internal_transfer=t_dict["is_internal_transfer"],
                     is_potential_duplicate=t_dict["is_potential_duplicate"],
@@ -181,6 +204,42 @@ class JobManager:
 
             if db_reviews:
                 db.bulk_save_objects(db_reviews)
+
+            # Save duplicate candidates
+            db_duplicates = []
+            for dup in result.get("duplicate_candidates", []):
+                p_idx = dup.get("primary_txn_id")
+                c_idx = dup.get("candidate_txn_id")
+                if str(p_idx).isdigit() and str(c_idx).isdigit():
+                    p_i = int(p_idx)
+                    c_i = int(c_idx)
+                    if p_i < len(saved_txns) and c_i < len(saved_txns):
+                        dup_rec = DuplicateCandidate(
+                            statement_id=statement.id,
+                            primary_txn_id=saved_txns[p_i].id,
+                            candidate_txn_id=saved_txns[c_i].id,
+                            similarity_score=dup.get("similarity_score", 1.0),
+                            amount=dup.get("amount", 0.0),
+                            status="PENDING"
+                        )
+                        db_duplicates.append(dup_rec)
+            if db_duplicates:
+                db.bulk_save_objects(db_duplicates)
+
+            # Save classifications
+            db_classifications = []
+            for t_obj in saved_txns:
+                cls_rec = TransactionClassification(
+                    transaction_id=t_obj.id,
+                    predicted_category=t_obj.category,
+                    confidence=t_obj.confidence_score,
+                    model_version="v1.0-rules-tfidf",
+                    feature_keywords=t_obj.payment_mode,
+                    is_reviewed=(t_obj.validation_status == "VALIDATED")
+                )
+                db_classifications.append(cls_rec)
+            if db_classifications:
+                db.bulk_save_objects(db_classifications)
 
             # Record Audit Log
             audit = AuditLog(

@@ -15,6 +15,11 @@ class Transaction(Base):
     
     narration = Column(Text, nullable=False)
     raw_text = Column(Text, nullable=False)  # Immutable raw source line
+    normalised_narration = Column(Text, nullable=True)
+    utr_number = Column(String(100), nullable=True, index=True)
+    extraction_method = Column(String(50), default="NATIVE_PDF", nullable=False)
+    bounding_box_json = Column(Text, nullable=True)
+    currency = Column(String(10), default="INR", nullable=False)
     
     reference_number = Column(String(100), nullable=True, index=True)
     cheque_number = Column(String(50), nullable=True, index=True)

@@ -38,7 +38,26 @@ def init_db():
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE statements ADD COLUMN excel_path VARCHAR(500)"))
-            conn.commit()
+            # Statements migrations
+            try:
+                conn.execute(text("ALTER TABLE statements ADD COLUMN excel_path VARCHAR(500)"))
+                conn.commit()
+            except Exception:
+                pass
+
+            # Transactions migrations
+            cols_to_add = [
+                ("normalised_narration", "TEXT"),
+                ("utr_number", "VARCHAR(100)"),
+                ("extraction_method", "VARCHAR(50) DEFAULT 'NATIVE_PDF'"),
+                ("bounding_box_json", "TEXT"),
+                ("currency", "VARCHAR(10) DEFAULT 'INR'")
+            ]
+            for col_name, col_type in cols_to_add:
+                try:
+                    conn.execute(text(f"ALTER TABLE transactions ADD COLUMN {col_name} {col_type}"))
+                    conn.commit()
+                except Exception:
+                    pass
     except Exception:
         pass

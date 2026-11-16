@@ -1,3 +1,4 @@
+import time
 import fitz  # PyMuPDF
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
@@ -112,7 +113,9 @@ class ExtractionPipeline:
         is_any_page_scanned = False
 
         # 2. Iterate through pages
+        pages_metadata = []
         for page_num in range(1, total_pages + 1):
+            t_page_start = time.time()
             if progress_callback:
                 progress_callback(
                     step=f"Extracting transactions from page {page_num}/{total_pages}",
@@ -120,6 +123,8 @@ class ExtractionPipeline:
                 )
 
             fitz_page = doc[page_num - 1]
+            page_text = fitz_page.get_text()
+            char_count = len(page_text.strip()) if page_text else 0
             page_is_scanned = OCREngine.is_page_scanned(fitz_page)
             if page_is_scanned:
                 is_any_page_scanned = True
@@ -138,15 +143,26 @@ class ExtractionPipeline:
                 if table_ocr:
                     tables = [table_ocr]
 
+            table_detected = False
             # Parse each extracted table using the selected parser adapter
             for tbl in tables:
                 if tbl and len(tbl) >= 1:
+                    table_detected = True
                     page_txns = selected_parser.parse_page_table(tbl, page_num)
                     for pt in page_txns:
                         # Adjust confidence for scanned pages
                         if page_is_scanned:
                             pt.confidence_score = Decimal(str(round(float(pt.confidence_score) * ocr_conf, 2)))
                     raw_txns.extend(page_txns)
+
+            t_elapsed_ms = int((time.time() - t_page_start) * 1000)
+            pages_metadata.append({
+                "page_number": page_num,
+                "char_count": char_count,
+                "table_detected": table_detected,
+                "page_status": "OCR_APPLIED" if page_is_scanned else ("PROCESSED" if table_detected else "EMPTY"),
+                "extraction_time_ms": t_elapsed_ms
+            })
 
         doc.close()
 
@@ -184,7 +200,9 @@ class ExtractionPipeline:
                 "value_date": raw.value_date or raw.transaction_date or date.today(),
                 "narration": raw.narration,
                 "raw_text": raw.raw_text,
+                "normalised_narration": nlp_meta.get("normalised_narration", raw.narration),
                 "reference_number": final_ref,
+                "utr_number": nlp_meta.get("utr_number") or final_ref,
                 "cheque_number": final_chq,
                 "debit_amount": raw.debit_amount,
                 "credit_amount": raw.credit_amount,
@@ -197,6 +215,8 @@ class ExtractionPipeline:
                 "source_page": raw.source_page,
                 "source_row": raw.source_row,
                 "confidence_score": conf,
+                "extraction_method": "OCR_FALLBACK" if is_any_page_scanned else "NATIVE_PDF",
+                "currency": "INR",
                 "validation_status": "VALIDATED" if conf >= Decimal("0.90") else "REVIEW_REQUIRED",
                 "is_internal_transfer": False,
                 "is_potential_duplicate": False,
@@ -285,6 +305,14 @@ class ExtractionPipeline:
 
         avg_conf = (sum([t["confidence_score"] for t in normalized_txns]) / len(normalized_txns)) if normalized_txns else Decimal("1.00")
 
+        # Identify duplicate candidates using RapidFuzz
+        from app.extraction.ml_classifier import MLTransactionClassifier
+        duplicate_candidates = MLTransactionClassifier.find_duplicate_candidates(normalized_txns)
+        for cand in duplicate_candidates:
+            c_idx = cand.get("candidate_txn_id")
+            if str(c_idx).isdigit() and int(c_idx) < len(normalized_txns):
+                normalized_txns[int(c_idx)]["is_potential_duplicate"] = True
+
         return {
             "bank_name": selected_parser.bank_name,
             "account_number": detected_acc_no,
@@ -306,5 +334,7 @@ class ExtractionPipeline:
             "confidence_avg": avg_conf.quantize(Decimal("0.01")),
             "transactions": normalized_txns,
             "review_items": review_items,
-            "broken_steps": broken_steps
+            "broken_steps": broken_steps,
+            "pages": pages_metadata,
+            "duplicate_candidates": duplicate_candidates
         }

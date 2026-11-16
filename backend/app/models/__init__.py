@@ -7,6 +7,10 @@ from app.models.statement import Statement
 from app.models.transaction import Transaction
 from app.models.review import ReviewItem
 from app.models.audit_log import AuditLog
+from app.models.statement_page import BankStatementPage
+from app.models.classification import TransactionClassification
+from app.models.correction import TransactionCorrection
+from app.models.duplicate import DuplicateCandidate
 
 __all__ = [
     "Organization",
@@ -18,4 +22,8 @@ __all__ = [
     "Transaction",
     "ReviewItem",
     "AuditLog",
+    "BankStatementPage",
+    "TransactionClassification",
+    "TransactionCorrection",
+    "DuplicateCandidate",
 ]

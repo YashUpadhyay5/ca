@@ -295,3 +295,64 @@ def consolidate_statements(
         "internal_transfers_volume": transfer_vol,
         "breakdown_by_bank": breakdown
     }
+
+@router.get("/{statement_id}/high-value")
+def get_statement_high_value(
+    statement_id: str,
+    threshold: float = 10000.0,
+    comparison: str = "GTE",
+    filter_mode: str = "BOTH",
+    category: Optional[str] = None,
+    payment_mode: Optional[str] = None,
+    counterparty: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Computes configurable high-value transaction metrics (ICAI Tax Audit Sec 40A(3), SFT & High-Value Clearing).
+    Default threshold: INR 10,000.
+    """
+    statement = db.query(Statement).join(Document).filter(
+        Statement.id == statement_id,
+        Document.org_id == current_user.org_id
+    ).first()
+    if not statement:
+        raise HTTPException(status_code=404, detail="Statement not found.")
+
+    txns = db.query(Transaction).filter(Transaction.statement_id == statement_id).order_by(Transaction.transaction_date).all()
+    analysis = CalculationEngine.compute_high_value_analysis(
+        transactions=txns,
+        threshold=Decimal(str(threshold)),
+        comparison=comparison,
+        filter_mode=filter_mode,
+        category=category,
+        payment_mode=payment_mode,
+        counterparty=counterparty
+    )
+
+    def txn_summary(t):
+        return {
+            "id": t.id,
+            "date": str(t.transaction_date),
+            "narration": t.narration,
+            "debit": float(t.debit_amount),
+            "credit": float(t.credit_amount),
+            "balance": float(t.balance),
+            "payment_mode": t.payment_mode,
+            "category": t.category,
+            "counterparty": t.counterparty,
+            "reference_number": t.reference_number
+        }
+
+    return {
+        "statement_id": statement.id,
+        "threshold": float(analysis["threshold"]),
+        "total_count": analysis["total_count"],
+        "total_high_value_debits": float(analysis["total_high_value_debits"]),
+        "total_high_value_credits": float(analysis["total_high_value_credits"]),
+        "highest_debit": float(analysis["highest_debit"]),
+        "highest_credit": float(analysis["highest_credit"]),
+        "top_20_debits": [txn_summary(t) for t in analysis["top_20_debits"]],
+        "top_20_credits": [txn_summary(t) for t in analysis["top_20_credits"]],
+        "transactions": [txn_summary(t) for t in analysis["transactions"]]
+    }

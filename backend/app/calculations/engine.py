@@ -308,3 +308,74 @@ class CalculationEngine:
                         break
 
         return internal_transfers
+
+    @classmethod
+    def compute_high_value_analysis(
+        cls,
+        transactions: List[Any],
+        threshold: Decimal = Decimal("10000.00"),
+        comparison: str = "GTE",
+        filter_mode: str = "BOTH",
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        category: Optional[str] = None,
+        payment_mode: Optional[str] = None,
+        counterparty: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Configurable high-value transaction analysis (ICAI Tax Audit Sec 40A(3), SFT & High-Value Clearing).
+        All comparisons executed with Python Decimal precision.
+        """
+        filtered = []
+        for t in transactions:
+            d = getattr(t, "transaction_date", None)
+            if date_from and d and d < date_from:
+                continue
+            if date_to and d and d > date_to:
+                continue
+            if category and getattr(t, "category", "") != category:
+                continue
+            if payment_mode and getattr(t, "payment_mode", "") != payment_mode:
+                continue
+            if counterparty and getattr(t, "counterparty", "") != counterparty:
+                continue
+
+            dr = Decimal(str(getattr(t, "debit_amount", 0) or 0))
+            cr = Decimal(str(getattr(t, "credit_amount", 0) or 0))
+
+            is_dr_hv = (dr > threshold) if comparison == "GT" else (dr >= threshold)
+            is_cr_hv = (cr > threshold) if comparison == "GT" else (cr >= threshold)
+
+            include = False
+            if filter_mode == "DEBIT" and is_dr_hv:
+                include = True
+            elif filter_mode == "CREDIT" and is_cr_hv:
+                include = True
+            elif filter_mode == "BOTH" and (is_dr_hv or is_cr_hv):
+                include = True
+
+            if include:
+                filtered.append(t)
+
+        hv_debits = [Decimal(str(getattr(t, "debit_amount", 0) or 0)) for t in filtered if Decimal(str(getattr(t, "debit_amount", 0) or 0)) > 0]
+        hv_credits = [Decimal(str(getattr(t, "credit_amount", 0) or 0)) for t in filtered if Decimal(str(getattr(t, "credit_amount", 0) or 0)) > 0]
+
+        tot_hv_dr = sum(hv_debits, Decimal("0.00"))
+        tot_hv_cr = sum(hv_credits, Decimal("0.00"))
+        highest_dr = max(hv_debits) if hv_debits else Decimal("0.00")
+        highest_cr = max(hv_credits) if hv_credits else Decimal("0.00")
+
+        top_20_dr = sorted([t for t in filtered if getattr(t, "debit_amount", 0) > 0], key=lambda x: getattr(x, "debit_amount", 0), reverse=True)[:20]
+        top_20_cr = sorted([t for t in filtered if getattr(t, "credit_amount", 0) > 0], key=lambda x: getattr(x, "credit_amount", 0), reverse=True)[:20]
+
+        return {
+            "threshold": threshold,
+            "total_count": len(filtered),
+            "total_high_value_debits": tot_hv_dr,
+            "total_high_value_credits": tot_hv_cr,
+            "highest_debit": highest_dr,
+            "highest_credit": highest_cr,
+            "top_20_debits": top_20_dr,
+            "top_20_credits": top_20_cr,
+            "transactions": filtered
+        }
