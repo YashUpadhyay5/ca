@@ -1,3 +1,4 @@
+from app.extraction.normalizer import DataNormalizer
 import pdfplumber
 import fitz  # PyMuPDF
 import re
@@ -253,13 +254,15 @@ class TableDetector:
                                 cleaned_row = [str(cell or "").strip() for cell in row]
                                 if any(cleaned_row):
                                     cleaned_tbl.append(cleaned_row)
-                            if len(cleaned_tbl) >= 1:
+                            # A real data table must have at least 1 header + 1 data row
+                            if len(cleaned_tbl) >= 2:
                                 tables.append(cleaned_tbl)
 
-            if not tables:
+            # If no multi-row tables found via lines, fall back to stream anchors
+            if not tables or max((len(t) for t in tables), default=0) <= 1:
                 stream_tbl = cls.extract_stream_table_anchors(pdf_path, page_number)
-                if stream_tbl and len(stream_tbl) >= 1:
-                    tables.append(stream_tbl)
+                if stream_tbl and len(stream_tbl) >= 2:
+                    tables = [stream_tbl]
 
         except Exception:
             pass

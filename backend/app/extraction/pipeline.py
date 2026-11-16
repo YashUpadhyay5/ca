@@ -50,18 +50,32 @@ class ExtractionPipeline:
         return None
 
     @classmethod
-    def extract_customer_name(cls, header_text: str) -> Optional[str]:
-        """Heuristically extracts account holder or customer name from header."""
+    def extract_customer_name(cls, header_text: str, fitz_page: Optional[Any] = None) -> Optional[str]:
+        """Heuristically extracts account holder or customer name from visual blocks or header text."""
+        if fitz_page:
+            try:
+                blocks = sorted(fitz_page.get_text("blocks"), key=lambda b: (b[1], b[0]))
+                for b in blocks:
+                    if b[1] < 200:
+                        lines = [l.strip() for l in b[4].split("\n") if l.strip()]
+                        for line in lines:
+                            line_clean = re.sub(r"(?i)\s+(?:Your Base Branch|Branch|Address|Account).*", "", line).strip()
+                            if re.match(r"^[A-Z][A-Z\s.&'\-]{2,40}$", line_clean) and not any(k in line_clean.upper() for k in [
+                                "STATEMENT", "ACCOUNT", "BRANCH", "BANK", "LIMITED", "SAVING", "CURRENT", "PERIOD", "TRANSACTION", "DATE", "INR"
+                            ]):
+                                return line_clean
+            except Exception:
+                pass
+
         for pattern in [
             r"(?i)(?:customer name|account name|name of account holder|client name|account holder)\s*[:\-]\s*([^\n\r]+)",
-            r"(?i)(?:m/s\.?|shri|smt\.?|mr\.?|ms\.?)\s+([A-Za-z0-9 .,&'/\-]+)",
-            r"(?i)(?:Statement of Transactions in [^\n]+\n\s*)([A-Z\s]{3,40})(?:\s+Your Base Branch|Branch|Address|\n)",
+            r"(?i)\b(?:m/s\.?|shri\b|smt\.?|mr\.?|ms\.?)\s+([A-Za-z0-9 .,&'/\-]+)"
         ]:
             match = re.search(pattern, header_text)
             if match:
                 name = match.group(1).strip()
                 name = re.sub(r"(?i)\s+(?:period|account|branch|date|statement|ifsc|cif|address|your base).*", "", name).strip()
-                if len(name) > 3 and not any(k in name.upper() for k in ["STATEMENT", "ACCOUNT NO", "BRANCH", "NUMBER"]):
+                if len(name) > 3 and not any(k in name.upper() for k in ["STATEMENT", "ACCOUNT NO", "BRANCH", "NUMBER", "EMPLOYEE"]):
                     return name[:80]
         return None
 
@@ -107,7 +121,7 @@ class ExtractionPipeline:
         selected_parser = cls.detect_bank_parser(first_page_text)
         selected_parser.reset()
         detected_acc_no = cls.extract_account_number(first_page_text)
-        detected_customer_name = cls.extract_customer_name(first_page_text)
+        detected_customer_name = cls.extract_customer_name(first_page_text, fitz_page=doc[0] if total_pages > 0 else None)
 
         raw_txns: List[RawTransaction] = []
         is_any_page_scanned = False
@@ -135,7 +149,7 @@ class ExtractionPipeline:
             if not page_is_scanned:
                 # Digital extraction
                 tables = TableDetector.extract_tables_pdfplumber(file_path, page_num)
-                if not tables:
+                if not tables or max((len(t) for t in tables), default=0) <= 1:
                     tables = [TableDetector.extract_text_pymupdf_fallback(file_path, page_num)]
             else:
                 # OCR extraction
